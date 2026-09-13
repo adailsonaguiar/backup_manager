@@ -1,0 +1,18 @@
+databases:
+  - name: financeiro
+    host: postgres-financeiro
+    port: 5432
+    database: financeiro
+    user: backup
+
+  - name: cursos
+    host: postgres-cursos
+    port: 5432
+    database: ita
+    user: backup
+
+  - name: usuarios
+    host: postgres-usuarios
+    port: 5432
+    database: usuarios
+    user: backup
