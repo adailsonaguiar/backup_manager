@@ -84,7 +84,7 @@ for ((i = 0; i < COUNT; i++)); do
 done
 
 log "Removendo backups com mais de $RETENTION_DAYS dias"
-"$SCRIPT_DIR/cleanup.sh" || log "Aviso: cleanup retornou erro"
+  bash "$SCRIPT_DIR/cleanup.sh" || log "Aviso: cleanup retornou erro"
 
 TOTAL=$((SUCCESS + FAILED))
 log "Backup concluído: $SUCCESS/$TOTAL"
