@@ -1,18 +1,12 @@
 databases:
-  - name: financeiro
-    host: postgres-financeiro
-    port: 5432
-    database: financeiro
-    user: backup
+  - name: itaapp
+    host: db-postgresql-nyc3-65485-do-user-21147287-0.l.db.ondigitalocean.com
+    port: 25060
+    database: itanagkazo01
+    user: doadmin
 
-  - name: cursos
-    host: postgres-cursos
+  - name: miradash
+    host: 45.55.92.235
     port: 5432
-    database: ita
-    user: backup
-
-  - name: usuarios
-    host: postgres-usuarios
-    port: 5432
-    database: usuarios
-    user: backup
+    database: cow_platform
+    user: cow_user
