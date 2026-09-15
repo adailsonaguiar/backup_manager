@@ -35,6 +35,14 @@ sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd6
 sudo chmod +x /usr/local/bin/yq
 ```
 
+### Permissões dos Scripts
+
+Certifique-se de dar permissão de execução aos scripts:
+
+```bash
+chmod +x scripts/backup.sh scripts/cleanup.sh
+```
+
 ## 1. Configurar os bancos
 
 Edite `config/databases.yml`:
@@ -104,14 +112,17 @@ Abra o crontab:
 crontab -e
 ```
 
-Adicione a linha para rodar diariamente às **03:00**. O script carrega o `.env`
-com `set -a; . .env; set +a`:
+Adicione a definição de variáveis no topo do crontab para garantir que o cron encontre os executáveis (`yq`, `pg_dump`) e use o bash:
 
 ```cron
-0 3 * * * cd /caminho/para/backup-manager && set -a && . ./.env && set +a && ./scripts/backup.sh >> ./logs/cron.log 2>&1
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 3 * * * cd /caminho/para/backup-manager && ./scripts/backup.sh >> ./logs/cron.log 2>&1
 ```
 
-> Substitua `/caminho/para/backup-manager` pelo caminho real no servidor.
+> **Nota:** O script `backup.sh` já carrega automaticamente as variáveis do `.env` localmente.
+> Substitua `/caminho/para/backup-manager` pelo caminho absoluto no servidor (ex: `/home/adailson/dev/backup_manager`).
 
 Outros exemplos de agendamento:
 
@@ -151,3 +162,27 @@ pg_restore --host=HOST --port=5432 --username=backup \
 O `cleanup.sh` remove arquivos `*.dump` com mais de 30 dias. Para alterar,
 edite `RETENTION_DAYS=30` no topo de `scripts/cleanup.sh` e
 `scripts/backup.sh`.
+
+## 7. Checklist para Execução Autônoma (Cron)
+
+Para garantir que o script execute de forma 100% autônoma e sem falhas, certifique-se dos seguintes pontos:
+
+1. **Permissão de execução nos scripts**:
+   ```bash
+   chmod 755 scripts/backup.sh scripts/cleanup.sh
+   ```
+2. **Permissões de arquivos e diretórios**:
+   - O usuário configurado no cron deve ter permissão de leitura em `config/` e `.env`.
+   - O usuário deve ter permissão de escrita em `backups/` e `logs/`.
+   - Recomenda-se restringir a permissão do `.env`:
+     ```bash
+     chmod 600 .env
+     ```
+3. **Ambiente (`PATH`) no Cron**:
+   - Por padrão, o cron tem um `PATH` mínimo e pode não localizar `/usr/local/bin/yq`.
+   - Defina `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` e `SHELL=/bin/bash` no crontab (`crontab -e`).
+4. **Variáveis e Senhas**:
+   - Certifique-se de que todas as credenciais estejam preenchidas no `.env`.
+5. **Conectividade com os Bancos**:
+   - Garanta que o servidor tenha conectividade de rede com os hosts definidos em `databases.yml` (portas liberadas em firewalls/security groups).
+
