@@ -70,6 +70,8 @@ for ((i = 0; i < COUNT; i++)); do
       --dbname="$DATABASE" \
       --format=custom \
       --compress="$COMPRESS_LEVEL" \
+      --no-owner \
+      --no-privileges \
       --no-password \
       --file="$DUMP_FILE"; then
 

@@ -148,8 +148,12 @@ crontab -l
 
 ```bash
 pg_restore --host=HOST --port=5432 --username=backup \
-  --dbname=financeiro backups/financeiro/financeiro_20260913_030000.dump
+  --dbname=financeiro \
+  --no-owner --no-privileges \
+  backups/financeiro/financeiro_20260913_030000.dump
 ```
+
+> **Nota:** As flags `--no-owner` (`-O`) e `--no-privileges` (`-x`) evitam erros de "role/usuário inexistente" ao restaurar em bancos com usuários diferentes do banco de origem.
 
 ## 6. Logs
 
