@@ -105,20 +105,29 @@ básica. Verifique também o objeto no console S3.
 
 ## Monitor Uptime Kuma (opcional)
 
-Crie um monitor do tipo **Push** e salve sua URL completa, sem quebra de linha,
-em `secrets/kuma_push_url` (`chmod 600`). A URL contém um token; trate-a como
-segredo. Inicie com o override:
+Crie um monitor do tipo **Push** no Uptime Kuma. Salve a URL completa de Push
+fornecida pelo Kuma em `secrets/kuma_push_url`, sem quebra de linha, e restrinja
+o acesso ao arquivo (`chmod 600 secrets/kuma_push_url`). A URL contém um token:
+trate-a como segredo e não a coloque no `.env` nem no Git. O endereço precisa
+ser acessível **de dentro do container**; `localhost` ali não aponta para o host
+Docker. Para habilitar o secret, inicie com o override:
 
 ```bash
 docker compose -f compose.yaml -f compose.monitor.yaml up -d --build
 ```
 
-O Push acontece **somente depois do upload bem-sucedido**; se dump, validação
-ou upload falharem, o monitor não recebe sucesso. Configure o intervalo do
-monitor em 6 horas e uma margem de atraso adequada à duração do backup; em
-caso de erro no Push, o job falha e registra o erro, mesmo que o objeto já
-esteja no S3. Deixe o override em uso também nos próximos deploys deste
-serviço. Combine `compose.ca.yaml` se necessário.
+Em cada execução, o próprio container `backup` gera o dump, verifica se seu
+catálogo pode ser lido com `pg_restore --list` e envia o arquivo ao S3. **Só
+depois do upload bem-sucedido** o script faz uma requisição HTTP à URL de Push.
+Essa verificação do arquivo não é um teste de restauração em um banco.
+
+Se a geração, a verificação ou o upload falhar, não há Push: o Kuma detectará
+que o sinal esperado não chegou. Configure o intervalo do monitor em **6 horas**
+e uma margem de atraso adequada à duração do backup. A requisição de Push tem
+limite de 15 segundos e até 2 tentativas adicionais; se falhar, o job registra
+erro e termina com falha, **mesmo que o objeto já esteja no S3**. Sem o override
+e o arquivo de URL, o monitoramento fica desativado. Mantenha o override nos
+próximos deploys deste serviço e combine `compose.ca.yaml` se necessário.
 
 ## Retenção no S3
 
