@@ -47,7 +47,7 @@ Baseado no procedimento em [`doc_s3_backup.md`](doc_s3_backup.md).
    ```
 
    Restrinja os arquivos no host: `chmod 600 secrets/pgpass
-   secrets/aws_credentials` e mantenha o diretório acessível apenas ao
+secrets/aws_credentials` e mantenha o diretório acessível apenas ao
    operador (`chmod 700 secrets`). São secrets de arquivo do Compose, montados
    em tempo de execução; **Compose local não criptografa secrets nem substitui
    um cofre**. O entrypoint copia as credenciais para arquivos privados `0600`
@@ -57,11 +57,13 @@ Baseado no procedimento em [`doc_s3_backup.md`](doc_s3_backup.md).
    ```json
    {
      "Version": "2012-10-17",
-     "Statement": [{
-       "Effect": "Allow",
-       "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
-       "Resource": "arn:aws:s3:::SEU-BUCKET/postgresql/*"
-     }]
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+         "Resource": "arn:aws:s3:::SEU-BUCKET/postgresql/*"
+       }
+     ]
    }
    ```
 
