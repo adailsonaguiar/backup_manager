@@ -1,94 +1,54 @@
 #!/usr/bin/env bash
-set -uo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG_FILE="$ROOT_DIR/config/databases.yml"
-BACKUP_DIR="$ROOT_DIR/backups"
-LOG_DIR="$ROOT_DIR/logs"
-ENV_FILE="$ROOT_DIR/.env"
-
-RETENTION_DAYS=30
-COMPRESS_LEVEL=6
+set -Eeuo pipefail
+umask 077
 
 log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+  printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"
 }
 
-fail() {
-  log "ERRO: $*" >&2
+trap 'log "ERRO: backup falhou na linha $LINENO" >&2' ERR
+
+# cron does not inherit the container's environment. This file contains only
+# non-secret settings; credentials are supplied through mounted files.
+source /run/backup/config
+export PGPASSFILE=/run/backup/pgpass
+export AWS_SHARED_CREDENTIALS_FILE=/run/backup/aws_credentials
+export AWS_CONFIG_FILE=/run/backup/aws_config
+export AWS_EC2_METADATA_DISABLED=true
+export AWS_RETRY_MODE=standard
+export AWS_MAX_ATTEMPTS=5
+export AWS_PAGER=
+
+exec 9>/run/backup/backup.lock
+if ! flock -n 9; then
+  log 'Outra execução está em andamento; backup não iniciado.' >&2
   exit 1
-}
-
-command -v yq >/dev/null 2>&1 || fail "yq não encontrado. Instale: https://github.com/mikefarah/yq"
-command -v pg_dump >/dev/null 2>&1 || fail "pg_dump não encontrado. Instale: sudo apt install -y postgresql-client"
-
-[ -f "$CONFIG_FILE" ] || fail "Arquivo de configuração não encontrado: $CONFIG_FILE"
-
-mkdir -p "$BACKUP_DIR" "$LOG_DIR"
-
-if [ -f "$ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$ENV_FILE"
-  set +a
 fi
 
-LOG_FILE="$LOG_DIR/backup_$(date '+%Y%m%d_%H%M%S').log"
-exec > >(tee -a "$LOG_FILE") 2>&1
+WORK_DIR=$(mktemp -d /var/backups/postgresql/job.XXXXXXXX)
+trap 'rm -rf -- "$WORK_DIR"' EXIT
 
-log "Início do backup"
+STAMP=$(date -u +%Y-%m-%dT%H-%M-%S-%NZ)
+FILE="$WORK_DIR/backup-$STAMP.dump"
+DEST="s3://$S3_BUCKET/postgresql/$BACKUP_NAME/backup-$STAMP.dump"
 
-COUNT="$(yq '.databases | length' "$CONFIG_FILE")"
-SUCCESS=0
-FAILED=0
+log "Iniciando backup de $PGDATABASE"
+pg_dump --no-password --format=custom --file="$FILE"
+test -s "$FILE"
+pg_restore --list "$FILE" >/dev/null
 
-for ((i = 0; i < COUNT; i++)); do
-  NAME="$(yq -r ".databases[$i].name" "$CONFIG_FILE")"
-  HOST="$(yq -r ".databases[$i].host" "$CONFIG_FILE")"
-  PORT="$(yq -r ".databases[$i].port" "$CONFIG_FILE")"
-  DATABASE="$(yq -r ".databases[$i].database" "$CONFIG_FILE")"
-  USER="$(yq -r ".databases[$i].user" "$CONFIG_FILE")"
+log "Enviando para $DEST"
+aws --region "$AWS_REGION" s3 cp "$FILE" "$DEST" --sse AES256 --only-show-errors
+log 'Backup enviado com sucesso.'
 
-  ENV_KEY="PGPASSWORD_$(echo "$NAME" | tr '[:lower:]-' '[:upper:]_')"
-  PASSWORD="${!ENV_KEY:-${PGPASSWORD:-}}"
-
-  if [ -z "$PASSWORD" ]; then
-    log "✗ $NAME — senha não definida (use $ENV_KEY ou PGPASSWORD)"
-    FAILED=$((FAILED + 1))
-    continue
+# A missing URL disables monitoring. A failed Push is logged and fails the job:
+# the dump is already safely in S3, but monitoring must not report success.
+if [[ -s /run/secrets/kuma_push_url ]]; then
+  PUSH_URL=$(cat /run/secrets/kuma_push_url)
+  if [[ ! "$PUSH_URL" =~ ^https?:// ]]; then
+    log 'ERRO: URL do Uptime Kuma deve começar com https:// (ou http:// na rede interna).' >&2
+    exit 1
   fi
-
-  DEST_DIR="$BACKUP_DIR/$NAME"
-  mkdir -p "$DEST_DIR"
-  DUMP_FILE="$DEST_DIR/${NAME}_$(date '+%Y%m%d_%H%M%S').dump"
-
-  if PGPASSWORD="$PASSWORD" pg_dump \
-      --host="$HOST" \
-      --port="$PORT" \
-      --username="$USER" \
-      --dbname="$DATABASE" \
-      --format=custom \
-      --compress="$COMPRESS_LEVEL" \
-      --no-password \
-      --file="$DUMP_FILE"; then
-
-    SIZE_BYTES="$(stat -c %s "$DUMP_FILE" 2>/dev/null || stat -f %z "$DUMP_FILE")"
-    SIZE_MB="$(awk -v b="$SIZE_BYTES" 'BEGIN { printf "%.0f", b / 1024 / 1024 }')"
-    log "✓ $NAME  $SIZE_MB MB"
-    SUCCESS=$((SUCCESS + 1))
-  else
-    log "✗ $NAME — falha no pg_dump"
-    FAILED=$((FAILED + 1))
-  fi
-done
-
-log "Removendo backups com mais de $RETENTION_DAYS dias"
-  bash "$SCRIPT_DIR/cleanup.sh" || log "Aviso: cleanup retornou erro"
-
-TOTAL=$((SUCCESS + FAILED))
-log "Backup concluído: $SUCCESS/$TOTAL"
-echo ""
-echo "Backup concluído: $SUCCESS/$TOTAL"
-
-[ "$FAILED" -eq 0 ]
+  curl --fail --silent --show-error --max-time 15 --retry 2 --output /dev/null "$PUSH_URL"
+  log 'Monitor Uptime Kuma atualizado.'
+fi

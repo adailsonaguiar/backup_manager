@@ -1,18 +1,18 @@
 databases:
-  - name: financeiro
-    host: postgres-financeiro
+  - name: itaapp
+    host: 192.168.3.12
     port: 5432
-    database: financeiro
-    user: backup
+    database: itanagkazo02
+    user: user
 
-  - name: cursos
-    host: postgres-cursos
-    port: 5432
-    database: ita
-    user: backup
+  # - name: cursos
+  #   host: postgres-cursos
+  #   port: 5432
+  #   database: ita
+  #   user: backup
 
-  - name: usuarios
-    host: postgres-usuarios
-    port: 5432
-    database: usuarios
-    user: backup
+  # - name: usuarios
+  #   host: postgres-usuarios
+  #   port: 5432
+  #   database: usuarios
+  #   user: backup

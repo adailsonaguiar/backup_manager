@@ -1,0 +1,31 @@
+services:
+  backup:
+    build: .
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      PGHOST: ${PGHOST:?Defina PGHOST}
+      PGPORT: ${PGPORT:-5432}
+      PGDATABASE: ${PGDATABASE:?Defina PGDATABASE}
+      PGUSER: ${PGUSER:?Defina PGUSER}
+      PGSSLMODE: ${PGSSLMODE:-require}
+      PGSSLROOTCERT: ${PGSSLROOTCERT:-}
+      PGCONNECT_TIMEOUT: ${PGCONNECT_TIMEOUT:-15}
+      S3_BUCKET: ${S3_BUCKET:?Defina S3_BUCKET}
+      AWS_REGION: ${AWS_REGION:?Defina AWS_REGION}
+      BACKUP_NAME: ${BACKUP_NAME:?Defina BACKUP_NAME}
+    secrets:
+      - pgpass
+      - aws_credentials
+    volumes:
+      # Must have enough free space for at least one complete custom-format dump.
+      - backup_tmp:/var/backups/postgresql
+
+secrets:
+  pgpass:
+    file: ./secrets/pgpass
+  aws_credentials:
+    file: ./secrets/aws_credentials
+
+volumes:
+  backup_tmp:

@@ -1,0 +1,9 @@
+.git
+.DS_Store
+.env
+backups/
+logs/
+secrets/
+config/
+doc_s3_backup.md
+README.md

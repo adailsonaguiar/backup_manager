@@ -1,0 +1,8 @@
+services:
+  backup:
+    secrets:
+      - kuma_push_url
+
+secrets:
+  kuma_push_url:
+    file: ./secrets/kuma_push_url

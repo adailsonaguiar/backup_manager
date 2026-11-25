@@ -1,153 +1,149 @@
 # backup-manager
 
-Backups automatizados de bancos de dados PostgreSQL.
+Container independente da aplicação que faz backup de **um banco PostgreSQL** para
+Amazon S3 a cada 6 horas (00:00, 06:00, 12:00 e 18:00 **UTC**). Usa `pg_dump` em
+formato customizado, confere o catálogo com `pg_restore --list`, envia com
+criptografia SSE-S3 e, opcionalmente, sinaliza sucesso ao Uptime Kuma.
+Logs vão para `docker compose logs`; o container não guarda backups após o envio.
+Baseado no procedimento em [`doc_s3_backup.md`](doc_s3_backup.md).
 
-Os dumps são gerados no formato custom do `pg_dump` (`.dump`), salvos localmente em
-`backups/<nome>/` e removidos automaticamente após 30 dias.
+## Requisitos
 
-## Estrutura
+- Docker com Compose e acesso do container ao PostgreSQL, S3 e, se utilizado,
+  Uptime Kuma. `localhost` **dentro do container não é o host Docker**: use um
+  nome de serviço numa rede compartilhada, IP acessível ou hostname de banco
+  gerenciado. Suba este Compose separadamente do deploy da aplicação.
+- `pg_dump` da imagem é **PostgreSQL 16**. Use servidor PostgreSQL 16 ou versão
+  anterior compatível; se o servidor for mais recente, ajuste a versão da
+  imagem no `Dockerfile` para a mesma versão principal do servidor antes do
+  build.
+- Espaço livre no volume `backup_tmp` para **pelo menos um dump inteiro**,
+  inclusive durante o upload. Dimensione e monitore o armazenamento Docker.
+- Usuário do banco com acesso de leitura a todos os objetos desejados. O dump
+  de um banco não inclui roles nem outros objetos globais do cluster.
 
-```
-backup-manager/
-├── config/
-│   └── databases.yml      # lista de bancos a serem backupeados
-├── scripts/
-│   ├── backup.sh          # executa os dumps e chama a limpeza
-│   └── cleanup.sh         # remove backups com mais de 30 dias
-├── backups/               # dumps gerados (por banco)
-├── logs/                  # logs de execução
-├── .env.example           # exemplo das variáveis de senha
-├── .gitignore
-└── README.md
-```
+## Configuração
 
-## Pré-requisitos (Ubuntu)
+1. Copie `.env.example` para `.env` e preencha os dados de **um** banco e do
+   bucket. O `.env` antigo deste repositório, se existir, contém variáveis de
+   senha da implementação anterior: remova-as do arquivo local ao migrar. Não
+   coloque senhas no `.env`. `BACKUP_NAME` identifica o prefixo no S3 e aceita
+   letras, números, `_` e `-`. Use um nome único para cada banco.
+2. Crie `secrets/pgpass` com uma linha no formato
+   `HOST:PORTA:BANCO:USUARIO:SENHA`, com os quatro primeiros campos iguais aos
+   configurados no `.env`. Escape `:` e `\` na senha com `\`. Sem curingas,
+   o arquivo não autentica conexões inesperadas. Exemplo:
 
-Instale o cliente do PostgreSQL e o `yq`:
+   ```text
+   postgres.example.com:5432:app:backup:SENHA_DO_BANCO
+   ```
 
-```bash
-sudo apt update
-sudo apt install -y postgresql-client
+3. Crie `secrets/aws_credentials` (perfil **default**):
 
-# yq (parser de YAML em bash)
-sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
-  -O /usr/local/bin/yq
-sudo chmod +x /usr/local/bin/yq
-```
+   ```ini
+   [default]
+   aws_access_key_id = SUA_ACCESS_KEY
+   aws_secret_access_key = SUA_SECRET_KEY
+   ```
 
-## 1. Configurar os bancos
+   Restrinja os arquivos no host: `chmod 600 secrets/pgpass
+   secrets/aws_credentials` e mantenha o diretório acessível apenas ao
+   operador (`chmod 700 secrets`). São secrets de arquivo do Compose, montados
+   em tempo de execução; **Compose local não criptografa secrets nem substitui
+   um cofre**. O entrypoint copia as credenciais para arquivos privados `0600`
+   (exigência do libpq para `pgpass`). Não inclua `secrets/` na imagem ou no Git.
+   Use uma credencial IAM exclusiva com permissão mínima, por exemplo:
 
-Edite `config/databases.yml`:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+       "Resource": "arn:aws:s3:::SEU-BUCKET/postgresql/*"
+     }]
+   }
+   ```
 
-```yaml
-databases:
-  - name: financeiro
-    host: postgres-financeiro
-    port: 5432
-    database: financeiro
-    user: backup
+   O bucket deve ser privado. O exemplo usa SSE-S3; SSE-KMS exige permissões
+   adicionais na chave KMS.
 
-  - name: cursos
-    host: postgres-cursos
-    port: 5432
-    database: ita
-    user: backup
-```
+4. Para PostgreSQL com CA própria, grave a CA em
+   `secrets/ca-certificate.crt`, configure no `.env`
+   `PGSSLMODE=verify-full` e
+   `PGSSLROOTCERT=/run/backup-ca/ca-certificate.crt`, e use também o arquivo
+   `compose.ca.yaml`. O certificado deve ser legível no container. O valor
+   padrão `PGSSLMODE=require` exige TLS, mas **não valida o hostname**;
+   prefira `verify-full` sempre que possível.
 
-- `name`: identificador usado no nome da pasta e do arquivo.
-- `host`, `port`, `database`, `user`: dados da conexão.
-- A senha **não** fica no YAML (ver abaixo).
-
-## 2. Configurar as senhas
-
-Copie o exemplo e preencha:
-
-```bash
-cp .env.example .env
-nano .env
-```
-
-```bash
-PGPASSWORD=senha_geral                # fallback para todos os bancos
-
-PGPASSWORD_FINANCEIRO=senha_financeiro # opcional, sobrescreve a global
-PGPASSWORD_CURSOS=senha_cursos
-PGPASSWORD_USUARIOS=senha_usuarios
-```
-
-A variável específica segue o padrão `PGPASSWORD_<NOME_EM_MAIÚSCULAS>`
-(hífens viram `_`). Ex.: banco `financeiro` → `PGPASSWORD_FINANCEIRO`.
-
-## 3. Executar manualmente
+## Executar
 
 ```bash
-cd /caminho/para/backup-manager
-./scripts/backup.sh
+docker compose build
+docker compose up -d
+docker compose logs -f backup
 ```
 
-Saída esperada:
-
-```
-✓ financeiro  245 MB
-✓ cursos      830 MB
-✓ usuarios    120 MB
-Backup concluído: 3/3
-```
-
-Para testar com um único banco, deixe apenas ele em `databases.yml`.
-
-## 4. Agendar no cron (Ubuntu)
-
-Abra o crontab:
+O cron permanece em primeiro plano; horários e timestamps dos arquivos usam
+UTC. Para testar imediatamente, sem aguardar o cron:
 
 ```bash
-crontab -e
+docker compose exec backup /usr/local/bin/backup-postgres.sh
 ```
 
-Adicione a linha para rodar diariamente às **03:00**. O script carrega o `.env`
-com `set -a; . .env; set +a`:
+Os testes locais do fluxo (com PostgreSQL, S3 e Push simulados) rodam com
+`bash tests/backup.sh`. Eles não substituem o teste real acima.
 
-```cron
-0 3 * * * cd /caminho/para/backup-manager && set -a && . ./.env && set +a && ./scripts/backup.sh >> ./logs/cron.log 2>&1
-```
+Uma execução já em andamento bloqueia outra com `flock` e retorna erro. O
+arquivo temporário é removido ao término, inclusive em falhas normais do
+script; uma interrupção abrupta (por exemplo, `SIGKILL`) pode deixar resíduos
+no volume, que deverão ser verificados pelo operador. O arquivo é enviado para
+`s3://BUCKET/postgresql/BACKUP_NAME/backup-DATA-UTC.dump` somente após validação
+básica. Verifique também o objeto no console S3.
 
-> Substitua `/caminho/para/backup-manager` pelo caminho real no servidor.
+## Monitor Uptime Kuma (opcional)
 
-Outros exemplos de agendamento:
-
-```cron
-# Todos os dias às 03:00
-0 3 * * * ...
-
-# A cada 6 horas
-0 */6 * * * ...
-
-# Segunda a sexta às 02:00
-0 2 * * 1-5 ...
-```
-
-Verificar se o cron está ativo e listar tarefas:
+Crie um monitor do tipo **Push** e salve sua URL completa, sem quebra de linha,
+em `secrets/kuma_push_url` (`chmod 600`). A URL contém um token; trate-a como
+segredo. Inicie com o override:
 
 ```bash
-systemctl status cron    # ou systemctl status crond
-crontab -l
+docker compose -f compose.yaml -f compose.monitor.yaml up -d --build
 ```
 
-## 5. Restaurar um backup
+O Push acontece **somente depois do upload bem-sucedido**; se dump, validação
+ou upload falharem, o monitor não recebe sucesso. Configure o intervalo do
+monitor em 6 horas e uma margem de atraso adequada à duração do backup; em
+caso de erro no Push, o job falha e registra o erro, mesmo que o objeto já
+esteja no S3. Deixe o override em uso também nos próximos deploys deste
+serviço. Combine `compose.ca.yaml` se necessário.
+
+## Retenção no S3
+
+Configure no bucket, em **Management → Lifecycle rules**, uma regra apenas para
+`postgresql/`: expirar objetos após **30 dias** e abortar uploads multipart
+incompletos após **7 dias**. Se houver versionamento, configure também a
+expiração das versões anteriores. O container **não exclui** backups do S3.
+Monitore capacidade do volume temporário e resultados no S3 separadamente.
+
+## Restauração manual
+
+Não há restauração periódica automatizada. Para conferir um backup, baixe um
+objeto do S3 com **credencial de leitura separada**, em um ambiente isolado;
+crie um banco vazio de teste e restaure nele:
 
 ```bash
-pg_restore --host=HOST --port=5432 --username=backup \
-  --dbname=financeiro backups/financeiro/financeiro_20260913_030000.dump
+pg_restore --host=HOST_DE_TESTE --port=5432 --username=USUARIO_DE_TESTE \
+  --dbname=BANCO_VAZIO_DE_TESTE --no-owner --no-privileges \
+  --exit-on-error backup.dump
 ```
 
-## 6. Logs
+Confira tabelas, registros e a aplicação. `pg_restore --list` no job só verifica
+se o catálogo do arquivo pode ser lido; **não comprova restauração efetiva**.
 
-- Cada execução gera `logs/backup_<data>_<hora>.log` (backup) e
-  `logs/cleanup_<data>_<hora>.log` (limpeza).
-- A saída do cron é acumulada em `logs/cron.log`.
+## Migração da versão anterior
 
-## Retenção
-
-O `cleanup.sh` remove arquivos `*.dump` com mais de 30 dias. Para alterar,
-edite `RETENTION_DAYS=30` no topo de `scripts/cleanup.sh` e
-`scripts/backup.sh`.
+`config/databases.yml`, `backups/` e `logs/` pertencem ao fluxo antigo e não
+são usados pelo container. Os dumps locais existentes não são removidos. O
+script de limpeza local foi substituído pelo Lifecycle do S3. Nunca monte o
+`.env` antigo na imagem: ele pode conter senhas da configuração anterior.

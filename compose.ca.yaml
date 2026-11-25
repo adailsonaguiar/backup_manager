@@ -1,0 +1,4 @@
+services:
+  backup:
+    volumes:
+      - ./secrets/ca-certificate.crt:/run/backup-ca/ca-certificate.crt:ro
