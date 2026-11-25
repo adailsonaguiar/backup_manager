@@ -15,7 +15,7 @@ sed \
 cat > "$tmp/run/backup/config" <<'EOF'
 export PGDATABASE=testdb
 export S3_BUCKET=test-bucket
-export BACKUP_NAME=testdb
+export BACKUP_NAME=senha_antiga
 export AWS_REGION=sa-east-1
 EOF
 printf 'http://kuma.internal/api/push/token\n' > "$tmp/run/secrets/kuma_push_url"
@@ -36,6 +36,9 @@ EOF
 cat > "$tmp/bin/aws" <<'EOF'
 #!/usr/bin/env bash
 echo aws >> "$MOCK_LOG"
+for arg in "$@"; do
+  case "$arg" in s3://*) printf '%s\n' "$arg" > "$MOCK_DEST";; esac
+done
 [[ "${FAIL_UPLOAD:-}" != 1 ]]
 EOF
 cat > "$tmp/bin/curl" <<'EOF'
@@ -49,6 +52,7 @@ exit 0
 EOF
 chmod +x "$tmp/bin/"*
 export MOCK_LOG="$tmp/calls"
+export MOCK_DEST="$tmp/destination"
 export PATH="$tmp/bin:$PATH"
 
 run_and_expect() {
@@ -66,6 +70,12 @@ run_and_expect() {
     printf 'Expected calls: %s\n' "$expected_calls" >&2
     exit 1
   }
+  if [[ "$expected_calls" == *aws* ]]; then
+    [[ "$(cat "$MOCK_DEST")" == s3://test-bucket/postgresql/testdb/backup-*.dump ]] || {
+      printf 'Unexpected S3 destination: %s\n' "$(cat "$MOCK_DEST")" >&2
+      exit 1
+    }
+  fi
   if find "$tmp/backups" -mindepth 1 -print -quit | grep -q .; then
     echo 'Temporary dump was not removed' >&2
     exit 1

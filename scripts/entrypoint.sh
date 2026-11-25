@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-required=(PGHOST PGPORT PGDATABASE PGUSER S3_BUCKET AWS_REGION BACKUP_NAME)
+required=(PGHOST PGPORT PGDATABASE PGUSER S3_BUCKET AWS_REGION)
 for key in "${required[@]}"; do
   if [[ -z "${!key:-}" ]]; then
     printf 'Configuração obrigatória ausente: %s\n' "$key" >&2
@@ -14,8 +14,8 @@ done
   echo 'PGPORT inválida' >&2
   exit 1
 }
-[[ "$BACKUP_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || {
-  echo 'BACKUP_NAME deve conter somente letras, números, _ ou -' >&2
+[[ "$PGDATABASE" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || {
+  echo 'PGDATABASE deve conter somente letras, números, _, . ou -' >&2
   exit 1
 }
 [[ "$S3_BUCKET" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || {
@@ -44,7 +44,7 @@ fi
 
 # Serialize only non-secret settings, safely quoted for the scheduled shell.
 {
-  for key in PGHOST PGPORT PGDATABASE PGUSER S3_BUCKET AWS_REGION BACKUP_NAME; do
+  for key in PGHOST PGPORT PGDATABASE PGUSER S3_BUCKET AWS_REGION; do
     printf 'export %s=%q\n' "$key" "${!key}"
   done
   for key in PGSSLMODE PGSSLROOTCERT PGCONNECT_TIMEOUT; do

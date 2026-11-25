@@ -13,7 +13,6 @@ services:
       PGCONNECT_TIMEOUT: ${PGCONNECT_TIMEOUT:-15}
       S3_BUCKET: ${S3_BUCKET:?Defina S3_BUCKET}
       AWS_REGION: ${AWS_REGION:?Defina AWS_REGION}
-      BACKUP_NAME: ${BACKUP_NAME:?Defina BACKUP_NAME}
     secrets:
       - pgpass
       - aws_credentials

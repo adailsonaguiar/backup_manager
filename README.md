@@ -27,8 +27,8 @@ Baseado no procedimento em [`doc_s3_backup.md`](doc_s3_backup.md).
 1. Copie `.env.example` para `.env` e preencha os dados de **um** banco e do
    bucket. O `.env` antigo deste repositório, se existir, contém variáveis de
    senha da implementação anterior: remova-as do arquivo local ao migrar. Não
-   coloque senhas no `.env`. `BACKUP_NAME` identifica o prefixo no S3 e aceita
-   letras, números, `_` e `-`. Use um nome único para cada banco.
+    coloque senhas no `.env`. A pasta no S3 usa `PGDATABASE` (letras, números,
+    `_`, `.` e `-`); a antiga variável `BACKUP_NAME` não é mais usada.
 2. Crie `secrets/pgpass` com uma linha no formato
    `HOST:PORTA:BANCO:USUARIO:SENHA`, com os quatro primeiros campos iguais aos
    configurados no `.env`. Escape `:` e `\` na senha com `\`. Sem curingas,
@@ -100,7 +100,7 @@ Uma execução já em andamento bloqueia outra com `flock` e retorna erro. O
 arquivo temporário é removido ao término, inclusive em falhas normais do
 script; uma interrupção abrupta (por exemplo, `SIGKILL`) pode deixar resíduos
 no volume, que deverão ser verificados pelo operador. O arquivo é enviado para
-`s3://BUCKET/postgresql/BACKUP_NAME/backup-DATA-UTC.dump` somente após validação
+`s3://BUCKET/postgresql/PGDATABASE/backup-DATA-UTC.dump` somente após validação
 básica. Verifique também o objeto no console S3.
 
 ## Monitor Uptime Kuma (opcional)

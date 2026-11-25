@@ -30,7 +30,7 @@ trap 'rm -rf -- "$WORK_DIR"' EXIT
 
 STAMP=$(date -u +%Y-%m-%dT%H-%M-%S-%NZ)
 FILE="$WORK_DIR/backup-$STAMP.dump"
-DEST="s3://$S3_BUCKET/postgresql/$BACKUP_NAME/backup-$STAMP.dump"
+DEST="s3://$S3_BUCKET/postgresql/$PGDATABASE/backup-$STAMP.dump"
 
 log "Iniciando backup de $PGDATABASE"
 pg_dump --no-password --format=custom --file="$FILE"
